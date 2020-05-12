@@ -1,0 +1,240 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: "AWS::Serverless-2016-10-31"
+
+Description: "Tableau stack pipeline"
+
+Parameters:
+  StackName:
+    Type: String
+    Description: "Child stack name"
+
+Resources:
+  # Roles
+  CloudFormationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "cloudformation.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "FullAccess"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "*"
+                Resource: "*"
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "FullAccess"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "*"
+                Resource: "*"
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "ECR"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "ecr:*"
+                Resource: !GetAtt Ecr.Arn
+              - Effect: "Allow"
+                Action:
+                  - "ecr:GetAuthorizationToken"
+                  - "ecr:DescribeRepositories"
+                Resource: "*"
+        - PolicyName: "S3"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:*"
+                Resource:
+                  - !Sub
+                    - "arn:aws:s3:::${ArtifactsStore}"
+                    - ArtifactsStore: "{{resolve:ssm:artifacts-store:1}}"
+                  - !Sub
+                    - "arn:aws:s3:::${ArtifactsStore}/*"
+                    - ArtifactsStore: "{{resolve:ssm:artifacts-store:1}}"
+        - PolicyName: "CloudWatch"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "FullAccess"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "*"
+                Resource: "*"
+
+  CodePipelineArtifactStoreBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref CodePipelineArtifactStoreBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: DenyUnEncryptedObjectUploads
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:PutObject"
+            Resource: !Join
+              - ""
+              - - !GetAtt
+                  - CodePipelineArtifactStoreBucket
+                  - Arn
+                - /*
+            Condition:
+              StringNotEquals:
+                "s3:x-amz-server-side-encryption": "aws:kms"
+          - Sid: DenyInsecureConnections
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: !Join
+              - ""
+              - - !GetAtt
+                  - CodePipelineArtifactStoreBucket
+                  - Arn
+                - /*
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
+
+  # Resources
+  CodePipelineArtifactStoreBucket:
+    Type: "AWS::S3::Bucket"
+
+  BuildProject:
+    Type: "AWS::CodeBuild::Project"
+    Properties:
+      Name: !Ref StackName
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/python:3.7.1
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+      ServiceRole: !Ref BuildRole
+      Source:
+        BuildSpec: buildspec.yml
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 30
+
+  Pipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CodePipelineArtifactStoreBucket
+      Name: !Ref StackName
+      RoleArn: !Ref PipelineRole
+      Stages:
+        - Name: "Source"
+          Actions:
+            - Name: "Github"
+              RunOrder: 1
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              Configuration:
+                Owner: "{{resolve:ssm:/github/repository/main:1}}"
+                Repo: !Ref StackName
+                Branch: master
+                OAuthToken: "{{resolve:ssm:/github/token/codepipeline:2}}"
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: "Build"
+          Actions:
+            - Name: "Build"
+              RunOrder: 1
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref BuildProject
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: "Deployment"
+          Actions:
+            - Name: "Provision"
+              RunOrder: 1
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                Capabilities: CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                ActionMode: CREATE_UPDATE
+                StackName: !Ref StackName
+                TemplatePath: BuildArtifact::packaged.yml
+                RoleArn: !Ref CloudFormationRole
+              InputArtifacts:
+                - Name: BuildArtifact
+
+Outputs: {}

@@ -11,6 +11,14 @@ Globals:
     Timeout: 3
 
 Resources:
+  MyApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowHeaders: "'Authorization'" # this is the default header used by TOKEN authorizers
+        AllowOrigin: "'https://tableau.ebanx.com'"
+
   HelloWorldFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
@@ -21,11 +29,9 @@ Resources:
         HelloWorld:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
           Properties:
+            RestApiId: !Ref MyApi
             Path: /hello
             Method: get
-            Cors:
-              AllowHeaders: "'Authorization'" # this is the default header used by TOKEN authorizers
-              AllowOrigin: "'https://tableau.ebanx.com'"
 
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function

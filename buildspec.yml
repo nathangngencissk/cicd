@@ -16,8 +16,7 @@ phases:
         sam package \
           --template-file ./cloudformation/template.yaml \
           --output-template-file ./packaged.yml \
-          --s3-bucket $ARTIFACTS_BUCKET \
-          --s3-prefix sam/cicd
+          --s3-bucket $ARTIFACTS_BUCKET
       - echo [$(date)] Build completed
   post_build:
     commands:

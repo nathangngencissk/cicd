@@ -159,7 +159,7 @@ Resources:
         PrivilegedMode: true
         EnvironmentVariables:
           - Name: ARTIFACTS_BUCKET
-            Value: "sam-app-codepipelineartifactstorebucket-1jt9kphec5lnx"
+            Value: !Ref CodePipelineArtifactStoreBucket
       ServiceRole: !GetAtt BuildRole.Arn
       Source:
         BuildSpec: buildspec.yml

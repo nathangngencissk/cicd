@@ -72,10 +72,13 @@ Resources:
             Statement:
               - Effect: "Allow"
                 Action:
-                  - "s3:*"
+                  - "s3:DeleteObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:PutObject"
                 Resource:
-                  - !Sub "arn:aws:s3:::${AWS::StackName}-codepipelineartifactstorebucket*"
-                  - !Sub "arn:aws:s3:::${AWS::StackName}-codepipelineartifactstorebucket*/*"
+                  - !Sub arn:${AWS::Partition}:s3:::${ArtifactStoreBucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${ArtifactStoreBucket}/*
         - PolicyName: "CloudWatch"
           PolicyDocument:
             Version: "2012-10-17"
@@ -108,10 +111,10 @@ Resources:
                 Action: "*"
                 Resource: "*"
 
-  CodePipelineArtifactStoreBucketPolicy:
+  ArtifactStoreBucketPolicy:
     Type: "AWS::S3::BucketPolicy"
     Properties:
-      Bucket: !Ref CodePipelineArtifactStoreBucket
+      Bucket: !Ref ArtifactStoreBucket
       PolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -122,7 +125,7 @@ Resources:
             Resource: !Join
               - ""
               - - !GetAtt
-                  - CodePipelineArtifactStoreBucket
+                  - ArtifactStoreBucket
                   - Arn
                 - /*
             Condition:
@@ -135,7 +138,7 @@ Resources:
             Resource: !Join
               - ""
               - - !GetAtt
-                  - CodePipelineArtifactStoreBucket
+                  - ArtifactStoreBucket
                   - Arn
                 - /*
             Condition:
@@ -143,7 +146,7 @@ Resources:
                 "aws:SecureTransport": false
 
   # Resources
-  CodePipelineArtifactStoreBucket:
+  ArtifactStoreBucket:
     Type: "AWS::S3::Bucket"
 
   BuildProject:
@@ -159,7 +162,7 @@ Resources:
         PrivilegedMode: true
         EnvironmentVariables:
           - Name: ARTIFACTS_BUCKET
-            Value: !Ref CodePipelineArtifactStoreBucket
+            Value: !Ref ArtifactStoreBucket
       ServiceRole: !GetAtt BuildRole.Arn
       Source:
         BuildSpec: buildspec.yml
@@ -171,7 +174,7 @@ Resources:
     Properties:
       ArtifactStore:
         Type: S3
-        Location: !Ref CodePipelineArtifactStoreBucket
+        Location: !Ref ArtifactStoreBucket
       Name: !Ref StackName
       RoleArn: !GetAtt PipelineRole.Arn
       Stages:

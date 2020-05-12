@@ -66,18 +66,6 @@ Resources:
             Action:
               - "sts:AssumeRole"
       Policies:
-        - PolicyName: "ECR"
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: "Allow"
-                Action: "ecr:*"
-                Resource: !GetAtt Ecr.Arn
-              - Effect: "Allow"
-                Action:
-                  - "ecr:GetAuthorizationToken"
-                  - "ecr:DescribeRepositories"
-                Resource: "*"
         - PolicyName: "S3"
           PolicyDocument:
             Version: "2012-10-17"
@@ -86,12 +74,8 @@ Resources:
                 Action:
                   - "s3:*"
                 Resource:
-                  - !Sub
-                    - "arn:aws:s3:::${ArtifactsStore}"
-                    - ArtifactsStore: "{{resolve:ssm:artifacts-store:1}}"
-                  - !Sub
-                    - "arn:aws:s3:::${ArtifactsStore}/*"
-                    - ArtifactsStore: "{{resolve:ssm:artifacts-store:1}}"
+                  - !Sub "arn:aws:s3:::${AWS::StackName}-codepipelineartifactstorebucket*"
+                  - !Sub "arn:aws:s3:::${AWS::StackName}-codepipelineartifactstorebucket*/*"
         - PolicyName: "CloudWatch"
           PolicyDocument:
             Version: "2012-10-17"
@@ -173,7 +157,10 @@ Resources:
         Image: aws/codebuild/python:3.7.1
         Type: LINUX_CONTAINER
         PrivilegedMode: true
-      ServiceRole: !Ref BuildRole
+        EnvironmentVariables:
+          - Name: ARTIFACTS_BUCKET
+            Value: "arn:aws:s3:::sam-app-codepipelineartifactstorebucket-1jt9kphec5lnx"
+      ServiceRole: !GetAtt BuildRole.Arn
       Source:
         BuildSpec: buildspec.yml
         Type: CODEPIPELINE
@@ -186,7 +173,7 @@ Resources:
         Type: S3
         Location: !Ref CodePipelineArtifactStoreBucket
       Name: !Ref StackName
-      RoleArn: !Ref PipelineRole
+      RoleArn: !GetAtt PipelineRole.Arn
       Stages:
         - Name: "Source"
           Actions:
@@ -201,7 +188,7 @@ Resources:
                 Owner: "{{resolve:ssm:/github/repository/main:1}}"
                 Repo: !Ref StackName
                 Branch: master
-                OAuthToken: "{{resolve:ssm:/github/token/codepipeline:2}}"
+                OAuthToken: "{{resolve:ssm:/github/token/codepipeline:1}}"
               OutputArtifacts:
                 - Name: SourceArtifact
         - Name: "Build"
@@ -233,7 +220,7 @@ Resources:
                 ActionMode: CREATE_UPDATE
                 StackName: !Ref StackName
                 TemplatePath: BuildArtifact::packaged.yml
-                RoleArn: !Ref CloudFormationRole
+                RoleArn: !GetAtt CloudFormationRole.Arn
               InputArtifacts:
                 - Name: BuildArtifact
 
